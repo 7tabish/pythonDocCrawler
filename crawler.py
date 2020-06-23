@@ -3,6 +3,8 @@ from bs4 import BeautifulSoup as BS
 import os
 import random
 import re
+import sys
+
 BASE_DIR=os.getcwd()
 
 class WebGraber:
@@ -11,8 +13,9 @@ class WebGraber:
         self.version=version
         self.all_topic_hrefs=[]
         #https://python.docs.org/3.7/optional1/optional2 .7 is also an optional
-        self.regex = '^https://+[a-z]+[.]+[a-z]+[.]+[a-z]+[/]+[0-9]+(.?[0-9]?)+(/?[a-z]?)+([/]?)+([a-zA-z0-9]?)$'
-
+        # self.regex = '^https://+[a-z]+[.]+[a-z]+[.]+[a-z]+[/]+[0-9]+(.?[0-9]?)+(/?[a-z]?)+([/]?)+([a-zA-z0-9]?)$'
+        self.regex_allowed_urls = re.compile("^(https://docs.python.org/)+[0-9]+(.?[0-9]?)+$")
+        
 
 
     def crawl(self):
@@ -94,8 +97,6 @@ class WebGraber:
                     # write the sub_categories html pages on text file
                     self.create_text_file(sub_file_path,bs_sub_category)
 
-
-
             else:
                 print("No subtree found")
 
@@ -106,22 +107,22 @@ class WebGraber:
         return filename
 
     def extract_url(self,url):
-        if re.search(self.regex,url):
+        if self.regex_allowed_urls.search(url):
             response = requests.get(url)
             if response.status_code != 200:
                 print(response.status_code)
                 print("Error while extracting url. Please check your url and version number")
-                return
+                sys.exit()
         else:
             print("url not match with pattern",url)
+            sys.exit()
         return BS(response.text, 'html.parser')
 
-    def to_string(self,html_content):
-        return str(html_content)
+
 
     def create_text_file(self,file_path,html_content):
         with open(file_path, "w", encoding="utf-8") as file:
-            file.write(self.to_string(html_content))
+            file.write(str(html_content))
 
 
 
