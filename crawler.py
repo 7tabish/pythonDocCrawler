@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup as BS
 import os
 import random
-
+import re
 BASE_DIR=os.getcwd()
 
 class WebGraber:
@@ -10,17 +10,15 @@ class WebGraber:
         self.url=url
         self.version=version
         self.all_topic_hrefs=[]
+        #https://python.docs.org/3.7/optional1/optional2 .7 is also an optional
+        self.regex = '^https://+[a-z]+[.]+[a-z]+[.]+[a-z]+[/]+[0-9]+(.?[0-9]?)+(/?[a-z]?)+([/]?)+([a-zA-z0-9]?)$'
 
 
 
     def crawl(self):
         base_url=self.url+"/"+str(self.version)
-        response = requests.get(base_url)
-        bs_homePage = BS(response.text, 'html.parser')
-        if response.status_code !=200:
-            print(response.status_code)
-            print("Error while extracting url. Please check your url and version number")
-            return
+        #extrcting html content from url
+        bs_homePage =self.extract_url(base_url)
 
         # create directory for pythonVersion and save home page file in it
         BASE_DIR=os.path.join(os.getcwd(),"python{}".format(self.version))
@@ -32,8 +30,8 @@ class WebGraber:
         print("base name is ",BASE_DIR)
         os.mkdir(BASE_DIR)
         HOME_PAGE_PATH=os.path.join(BASE_DIR,"home.txt")
-        with open(HOME_PAGE_PATH,"w",encoding="utf-8") as homeFile:
-            homeFile.write(response.text)
+
+        self.create_text_file(HOME_PAGE_PATH,bs_homePage)
 
 
 
@@ -55,8 +53,7 @@ class WebGraber:
             topic_url=base_url+"/"+ topic_href
 
             print('Main category: ',topic_url)
-            response = requests.get(topic_url)
-            bs = BS(response.text, 'html.parser')
+            bs = self.extract_url(topic_url)
 
             #create sub directory and files only index file or root file will be create
             #in this loop other nested files will create in nested loop
@@ -73,8 +70,9 @@ class WebGraber:
 
             #join the new subfile with subdirectory like (using >index, tutorial > index)
             SUB_DIR_FILE_PATH=os.path.join(SUB_DIR_PATH,sub_directory_file_name)
-            with open(SUB_DIR_FILE_PATH,"w",encoding="utf-8") as sub_file:
-                sub_file.write(response.text)
+
+            self.create_text_file(SUB_DIR_FILE_PATH,bs)
+
 
 
 
@@ -85,17 +83,18 @@ class WebGraber:
                     sub_cateogry_url = topic_url.replace(topic_url.rsplit('/', 1)[-1], sub_cateogry['href'])
 
                     print(" -crawling subcategory {}".format(sub_cateogry_url))
-                    response_sub_category = requests.get(sub_cateogry_url)
-                    bs_sub_category = BS(response.text, 'html.parser')
+                    bs_sub_category =self.extract_url(sub_cateogry_url)
+
 
                     #generate name for sub text files.
                     sub_file_name=self.filter_filename(sub_cateogry['href'])
                     #set path for sub text files inside sub directory
                     sub_file_path=os.path.join(SUB_DIR_PATH,sub_file_name)
 
-                    #write the sub_categories html pages on text file
-                    with open(sub_file_path,"w",encoding="utf-8") as sub_file:
-                        sub_file.write(response_sub_category.text)
+                    # write the sub_categories html pages on text file
+                    self.create_text_file(sub_file_path,bs_sub_category)
+
+
 
             else:
                 print("No subtree found")
@@ -106,12 +105,29 @@ class WebGraber:
         filename = filename + '.txt'
         return filename
 
+    def extract_url(self,url):
+        if re.search(self.regex,url):
+            response = requests.get(url)
+            if response.status_code != 200:
+                print(response.status_code)
+                print("Error while extracting url. Please check your url and version number")
+                return
+        else:
+            print("url not match with pattern",url)
+        return BS(response.text, 'html.parser')
+
+    def to_string(self,html_content):
+        return str(html_content)
+
+    def create_text_file(self,file_path,html_content):
+        with open(file_path, "w", encoding="utf-8") as file:
+            file.write(self.to_string(html_content))
 
 
 
 
 
 if __name__ == '__main__':
-    webgraber=WebGraber("https://docs.python.org",3.8)
+    webgraber=WebGraber("https://docs.python.org",3.6)
     webgraber.crawl()
 
