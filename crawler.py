@@ -1,66 +1,98 @@
 import requests
-from bs4 import BeautifulSoup as BS
-import os
-import re
-import random
 import sys
+import re
+import copy
+import os
+from bs4 import BeautifulSoup as BS
 
 
-
-
-class WebGraber():
-    def __init__(self, start_url, crawling_rules, max_depth):
+class WebGraber:
+    def __init__(self,patterns,start_url,max_depth):
         self.start_url=start_url
-        self.crawling_rules=crawling_rules
+        self.allowed_patterns=allowed_patterns
         self.max_depth=max_depth
-        self.main_urls=[]
-        self.sub_urls=set([])
+        self.all_urls=set([])
+        self.sub_level_urls=set([])
+        self.temp_urls=set([])
 
-        if self.max_depth>2:
-            print("Maximum 2 levels are allowed")
-            sys.exit()
-        self.BASE_DIR=os.getcwd()
-        self.BASE_DIR_CRAWLER=os.path.join(self.BASE_DIR,"crawler")
-        if os.path.exists(self.BASE_DIR):
-            self.BASE_DIR_CRAWLER=os.path.join(self.BASE_DIR,"crawler-{}".format(str(random.randint(1,40))))
-            os.mkdir(self.BASE_DIR_CRAWLER)
-        else:
-            os.mkdir(self.BASE_DIR_CRAWLER)
-        #extracting content from main page #level-0
-        for rule in self.crawling_rules:
-            if rule[0].search(self.start_url):
-                self.base_url=self.start_url
-                bs_response=self.download_url(self.start_url)
-                self.save_to_disk(self.start_url,bs_response)
-                self.main_urls=self.parse_page(bs_response,rule[1])
-                self.main_urls=self.filter_allowed_urls(self.main_urls)
+    def crawl(self):
+        self.all_urls.add(self.start_url)
+        if self.max_depth==0:
+            self.url_to_disk()
+            return
+        
+        #section run if max_depth are more than 0
+        self.sub_level_urls.add(self.start_url)
+        initial_depth = 1
+        #self.sub_levels_urls are to save the next level urls of current page
+        while initial_depth <self.max_depth+ 1:
+            #self.temp_urls are use to save temporary next levels urls and when iteration of sub_urls complete then we set new ursl from self.temp_url to self.sub_level_url
+            self.temp_urls= set([])
+            print("Level ", initial_depth)
+            for sub_url in self.sub_level_urls:
+                print(" \nVisiting URL =>", sub_url)
+                response = download_url(sub_url)
+                # fething urls (href) from the visiting page (sub_url)
+                for url in response.find_all("a"):
+                    fetch_url = url.get("href")
 
-        if self.max_depth in range(0,3):
-            for url in self.main_urls:
-                self.sub_urls=set([])
-                for rule in self.crawling_rules:
-                    if rule[0].search(self.start_url+url):
-                        print("visiting main category => ",url)
-                        bs_response=self.download_url(self.start_url+url)
-                        self.save_to_disk(url,bs_response)
-                        sub_urls=self.parse_page(bs_response,rule[1])
-                        if self.max_depth==2:
-                            #level 2
-                            for sub_url in sub_urls:
-                                if not sub_url.startswith("."):
-                                    if "/" in url:
-                                        sub_url=url.rsplit("/",1)[0]+"/"+sub_url
-                                    self.sub_urls.add(sub_url)
+                    if not ".zip" in fetch_url and not ".tar.bz2" in fetch_url and not fetch_url.startswith(
+                            '.') and not fetch_url.startswith("https"):
+                        lastName = sub_url.rsplit("/", 1)[1]
+                        if ".html" in lastName:
+                            base_url = sub_url.rsplit("/", 1)[0]
+                            fetch_url = base_url + "/" + fetch_url
+                        else:
+                            fetch_url = sub_url + fetch_url
 
-                            self.sub_urls=self.filter_allowed_urls(self.sub_urls)
-                            if self.sub_urls:
-                                for sub_url in self.sub_urls:
-                                    print(" sub category => ",sub_url)
-                                    bs_response=self.download_url(self.start_url+sub_url)
-                                    self.save_to_disk(sub_url,bs_response)
+                        self.add_url(fetch_url)
 
+                    if fetch_url.startswith("https"):
+                        self.add_url(fetch_url)
 
+            self.sub_level_urls = copy.deepcopy(self.temp_urls)
+            initial_depth = initial_depth + 1
+        print("/n Extract url and save to disk")
+        self.url_to_disk()
 
+    def add_url(self,url):
+        # filter allowed urls
+        if self.allowed_urls(url):
+            # add url to temp_url set only if that url is unvisit
+            if url not in self.all_urls:
+                print(" - sub url => ", url)
+                self.temp_urls.add(url)
+            self.all_urls.add(url)
+    #extract all level urls in self.all_urls and save it to file
+    def url_to_disk(self):
+        for url in self.all_urls:
+            #base_url can be self.start_url then you will only ge result of specific version that is in your self.start_url
+            base = "https://docs.python.org/"
+            _url = url.replace(base, "")
+            dir = _url
+
+            if dir.rsplit("/", 1)[1]:
+                if ".html" in dir.rsplit("/", 1)[1]:
+                    dir = dir.rsplit("/", 1)[0]
+
+            if not os.path.exists(dir):
+                os.makedirs(dir)
+            if _url.rsplit("/", 1)[1]:
+                filename = _url.rsplit("/", 1)[1]
+            else:
+                filename = dir.rsplit("/", 1)[0]
+            filename = filename + ".txt"
+            # create a filepath
+            if dir[-1] == "/":
+                FILEPATH = dir + filename
+            else:
+                FILEPATH = dir + "/" + filename
+
+            print("Fecthing => ", url)
+            res = self.download_url(url)
+            print(" Filepath => ",FILEPATH)
+            with open(FILEPATH, "w", encoding="utf-8") as file:
+                file.write(str(res))
 
     def download_url(self,url):
         response = requests.get(url)
@@ -69,62 +101,31 @@ class WebGraber():
             sys.exit()
         return BS(response.text, 'html.parser')
 
-    def parse_page(self,html,css):
-        parse_urls=set([])
-        if css:
-            block=html.select_one(css)
-            for url in block.find_all("a"):
-                parse_urls.add(url.get('href'))
-        else:
-            for url in html.find_all("a"):
-                parse_urls.add(url.get('href'))
-        return parse_urls
+    def allowed_urls(self,url):
+        for pattern in self.allowed_patterns:
+            if pattern.search(url):
+                return True
+        return False
 
+def download_url(url):
+    response = requests.get(url)
+    if response.status_code != 200:
+        print("Error while extracting url. Please check your url and version number")
+        sys.exit()
+    return BS(response.text, 'html.parser')
 
-    def save_to_disk(self,url,content):
-        #if url is base_url then save it to root dir
-        if self.crawling_rules[0][0].search(url):
-            with open(os.path.join(self.BASE_DIR_CRAWLER,'home.txt'), "w", encoding="utf-8") as file:
-                file.write(str(content))
-        else:
-            if "/" in url:
-                directory=url.rsplit("/",1)[0]
-                filename=url.rsplit("/",1)[1]
-            else:
-                directory=url
-                filename=url
-            filename=filename.replace(".html","")
-            filename=filename+".txt"
-            directoryPath=os.path.join(self.BASE_DIR_CRAWLER,directory)
-            filepath=os.path.join(directoryPath,filename)
-            if not os.path.exists(directoryPath):
-                os.makedirs(directoryPath)
-            with open(filepath, "w", encoding="utf-8") as file:
-                file.write(str(content))
-
-    def filter_allowed_urls(self,urls):
-        filter_urls=set([])
-        for url in urls:
-            if not url.startswith("."):
-                for rule in self.crawling_rules:
-                    if rule[0].search(self.start_url+url):
-                        filter_urls.add(url)
-        if filter_urls:
-            return filter_urls
 
 
 url_pattern1="^(https://docs.python.org)/[0-9](.[0-9])/$"
-url_pattern2="^(https://docs.python.org)/[0-9](.[0-9])/[A-Za-z0-9-.]+/[a-zA-z0-9.-]*?$"
+url_pattern2="^(https://docs.python.org)/[0-9](.[0-9])/[A-Za-z0-9-.]+/?[a-zA-z0-9.-]*$"
 url_pattern3="^(https://docs.python.org)/[0-9](.[0-9])/[A-Za-z0-9.-]+[/][A-Za-z0-9.-]+/[A-Za-z0-9.-]*$"
 
 url_pattern1=re.compile(url_pattern1)
 url_pattern2=re.compile(url_pattern2)
 url_pattern3=re.compile(url_pattern3)
+allowed_patterns=[url_pattern1,url_pattern2,url_pattern3]
 
-patterns=[
-    (url_pattern1,"div.body table.contentstable"),
-    (url_pattern2,""),
-    (url_pattern3,"")
-]
-webgraber=WebGraber("https://docs.python.org/3.8/",patterns,2)
 
+if __name__ == '__main__':
+    webgraber=WebGraber(allowed_patterns,"https://docs.python.org/3.7/",2)
+    webgraber.crawl()
